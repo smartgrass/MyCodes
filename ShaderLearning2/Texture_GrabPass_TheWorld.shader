@@ -4,6 +4,8 @@ Shader "MyShader/Texture_GrabPass_TheWorld"
     {
 		_BaseColor("Base Color",Color) = (1.0,1.0,1.0,1.0)
 		_MainTex("Main Texture",2D) = "white"{}
+		 _Angle("_Angle",float) =  0
+		 _R("R",float) =  0.5
     }
     SubShader
     {
@@ -31,16 +33,20 @@ Shader "MyShader/Texture_GrabPass_TheWorld"
             struct outputData{
                 float4 pos : SV_POSITION;
 				float4 uv : TEXCOORD0;
+				float4 pos2 : TEXCOORD1;
             };
 
 			sampler2D _GrabPassTexture;
 			sampler2D _MainTex;
 			fixed4 _BaseColor;
+			float _Angle;
+			float _R;
 
             outputData vert(inputData i)
             {
                 outputData o;
                 o.pos = UnityObjectToClipPos(i.vertex);
+				o.pos2 = i.vertex;
 				o.uv.xy = i.texcoord.xy;
 
 				fixed4 screenPos = ComputeGrabScreenPos(o.pos);
@@ -56,7 +62,7 @@ Shader "MyShader/Texture_GrabPass_TheWorld"
 
 				return o;
             }
-
+			// RGB -> HSV 色彩空间
 			float3 RGB2HSV(float3 c)
 			{
 				float4 K = float4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);
@@ -67,6 +73,7 @@ Shader "MyShader/Texture_GrabPass_TheWorld"
 				return float3(abs(q.z + (q.w - q.y) / (6.0 * d + e)), d / (q.x + e), q.x);
 			}
 
+			//HSV -> RGB
 			float3 HSV2RGB(float3 c)
 			{
 				float4 K = float4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
@@ -96,26 +103,77 @@ Shader "MyShader/Texture_GrabPass_TheWorld"
 				return val;
 			}
 
-			fixed4 frag(outputData o):SV_TARGET{
-
-				fixed3 albedo =tex2D(_MainTex,o.uv.xy);
-				fixed3 color = tex2D(_GrabPassTexture,o.uv.zw).xyz *_BaseColor *albedo;
+			fixed4 frag(outputData i):SV_TARGET{
 
 
+
+
+
+				fixed3 albedo =tex2D(_MainTex,i.uv.xy);
+
+
+
+				// if( distance(i.uv,float2(0.5,0.5)) > _R)
+				if( distance(i.pos2.xy,float2(0.5,0.5)) > _R)
+				{
+					return float4(tex2D(_GrabPassTexture,i.uv.zw).xyz *_BaseColor *albedo,1);
+				}
+
+				return float4(tex2D(_GrabPassTexture,i.uv.xy).xyz *_BaseColor *albedo,1);
+
+				i.uv.xy=i.uv.zw;
+				//uv
+				float2 uv = float2(i.uv.x-0.5,i.uv.y-0.5);
+				float f = distance(uv,float2(0,0));
+				float s = sin(lerp(0,_Angle,f));
+				float c = cos(lerp(0,_Angle,f));
+				// -c s
+				// s c
+
+				uv = float2(-(-uv.x*c+uv.y*s),uv.x*s+uv.y*c);
+
+				uv = float2(uv.x+0.5,uv.y+0.5);
+				// fixed4 col = tex2D(_MainTex, i.uv.zw);
+
+
+
+
+				// float4 time = _Time;
+                // float2 uvA = (i.uv0+(time.r*float2(_noise_A_U,_noise_A_V))*float2(1,1));//第一张图uv动画
+                // float4 A = tex2D(_noise_A,TRANSFORM_TEX(uvA, _noise_A));
+                // float2 uvB = (i.uv0+(time.r*float2(_noise_B_U,_noise_B_V))*float2(1,1));//第二张图uv动画
+                // float4 B = tex2D(_noise_B,TRANSFORM_TEX(uvB, _noise_B));
+                // float2 MainTexUV = ((i.uv0+((A.r+B.r-1)*_raodong_V))+(time.r*float2(_mianTex_U,_mianTex_V))*float2(1,1));//主贴图的扭曲uv + uv动画
+                // float2 AlphaUV = i.uv0+((A.r+B.r-1)*_raodong_V);//另外加上一扭曲贴图的通道
+
+                // float4 main_tex = tex2D(_main_tex,TRANSFORM_TEX(MainTexUV, _main_tex));//主贴图扭曲
+                // float4 alpha_tex = tex2D(_tex_alpha,TRANSFORM_TEX(AlphaUV, _tex_alpha));//通道图的扭曲
+                // float3 finalColor = (_main_V*((_Color.rgb*main_tex.rgb)*((alpha_tex.rgb*_alpha_color.rgb)*_alpha_v)));
+                // fixed4 finalRGBA = fixed4(finalColor,1);
+                // UNITY_APPLY_FOG(i.fogCoord, finalRGBA);
+
+
+				fixed3 color = tex2D(_GrabPassTexture,uv.xy).xyz *_BaseColor *albedo;
+
+
+				//颜色变化
 				float3 hsvColor = RGB2HSV(color);
 				hsvColor.x += lerp(0,0.2,sin( UNITY_TWO_PI * frac(_Time.y *0.5)));
 				hsvColor.x = frac(hsvColor.x);
-				float4 reversedColor;
-				reversedColor.rgb = 1 - HSV2RGB(hsvColor);
+
+				hsvColor = HSV2RGB(hsvColor);
+
+				//反色
+				//hsvColor =  1 - hsvColor;
 
 
-				float2 uv =  o.uv;
-				float time = _Time.y;
-				float val = CausticTriTwist(uv,time);//替换相应的函数即可
 
+				// float2 uv =  o.uv;
+				// float time = _Time.y;
+				// float val = CausticTriTwist(uv,time);//替换相应的函数即可
+				// return float3(val,val,val);
 
-				reversedColor.rgb = reversedColor.rgb * float3(val,val,val);
-				return reversedColor;
+				return float4 (hsvColor,1);
             }
 
 			/*ComputeGrabScreenPos 源码
